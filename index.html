@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Elite Notes</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#1a1a2e;color:#fff;margin:0;padding:20px;display:flex;justify-content:center}
+    .container{width:100%;max-width:640px;background:#fff;color:#333;padding:20px;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+    h1{color:#d4af37;text-align:center;margin:8px 0 16px}
+    .page{display:none}
+    .page.active{display:block}
+    .card{border:2px solid #d4af37;padding:14px;margin:10px 0;border-radius:12px;cursor:pointer;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .meta{font-size:12px;color:#666;font-weight:600}
+    .btn{background:#d4af37;color:#fff;border:none;padding:12px 16px;border-radius:12px;cursor:pointer;width:100%;font-size:16px;font-weight:900}
+    .btn.secondary{background:#eee;color:#222}
+    .btn.danger{background:#b3261e}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+    .linklike{border:none;background:transparent;cursor:pointer;color:#1a1a2e;font-weight:900;padding:8px 10px;border-radius:10px}
+    .linklike:hover{background:rgba(0,0,0,.06)}
+    input,textarea{width:100%;padding:12px;margin:10px 0;box-sizing:border-box;border:1px solid #ddd;border-radius:10px;font-size:15px}
+    .empty{padding:16px;border:1px dashed #d4af37;border-radius:12px;background:#fffdf5;color:#6b5b23;margin-top:10px}
+    .row{display:flex;gap:10px}
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div id="p1" class="page active">
+    <h1>ELITE NOTES</h1>
+    <div class="meta">Minden mentés a böngésződben történik (localStorage).</div>
+    <div id="notebookList"></div>
+    <button class="btn" onclick="ui_newNotebook()">+ Új füzet</button>
+  </div>
+
+  <div id="p2" class="page">
+    <div class="topbar">
+      <button class="linklike" onclick="ui_backToNotebooks()">← Vissza</button>
+      <button class="btn danger" style="width:auto;padding:10px 12px" onclick="ui_deleteNotebook()">Füzet törlése</button>
+    </div>
+    <h2 id="notebookTitle"></h2>
+    <div class="meta" id="noteCount"></div>
+    <div id="noteList"></div>
+    <button class="btn" onclick="ui_newNote()">+ Új jegyzet</button>
+  </div>
+
+  <div id="p3" class="page">
+    <div class="topbar">
+      <button class="linklike" onclick="ui_backToNotes()">← Vissza</button>
+      <button class="btn danger" style="width:auto;padding:10px 12px" onclick="ui_deleteNote()">Jegyzet törlése</button>
+    </div>
+    <input id="noteTitle" placeholder="Cím..." />
+    <textarea id="noteBody" rows="12" placeholder="Írj ide..."></textarea>
+    <div class="row">
+      <button class="btn secondary" onclick="ui_cancelEdit()">Mégse</button>
+      <button class="btn" onclick="ui_saveNote()">Mentés</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* Hibakiírás a képernyőre */
+window.onerror = function(message, source, lineno, colno, error) {
+  document.body.innerHTML =
+    '<div style="padding:16px;font-family:monospace;white-space:pre-wrap;background:#111;color:#fff;min-height:100vh;">' +
+    'JS ERROR:\\n' + message + '\\n' +
+    'Source: ' + source + '\\n' +
+    'Line: ' + lineno + ':' + colno + '\\n' +
+    (error && error.stack ? '\\n' + error.stack : '') +
+    '</div>';
+};
+
+/* Adat */
+const KEY = "elite_notes_data_v1";
+let data = load() || { notebooks: [], notes: [] };
+let activeNotebookId = null;
+let activeNoteId = null;
+
+function load(){
+  try { return JSON.parse(localStorage.getItem(KEY)); }
+  catch(e){ return null; }
+}
+function save(){
+  localStorage.setItem(KEY, JSON.stringify(data));
+}
+function show(n){
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById("p"+n).classList.add("active");
+}
+function uid(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+function esc(s){
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+function fmt(ts){
+  try{
+    const d = new Date(ts);
+    return d.toLocaleString("hu-HU",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+  }catch(e){ return ""; }
+}
+
+/* Render */
+function renderNotebooks(){
+  const host = document.getElementById("notebookList");
+  host.innerHTML = "";
+  if(!data.notebooks.length){
+    host.innerHTML = '<div class="empty">Nincs még füzeted. Nyomj egy <b>Új füzet</b>-et. ✨</div>';
+    return;
+  }
+  data.notebooks.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(nb=>{
+    const count = data.notes.filter(n=>n.notebookId===nb.id).length;
+    const div = document.createElement("div");
+    div.className="card";
+    div.innerHTML = '<div><div>📒 '+esc(nb.name)+'</div><div class="meta">'+count+' jegyzet</div></div><div class="meta">›</div>';
+    div.onclick = ()=> ui_openNotebook(nb.id);
+    host.appendChild(div);
+  });
+}
+
+function renderNotes(){
+  const host = document.getElementById("noteList");
+  host.innerHTML = "";
+  const notes = data.notes.filter(n=>n.notebookId===activeNotebookId).slice()
+    .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+
+  document.getElementById("noteCount").innerText = notes.length ? (notes.length+" jegyzet") : "Még nincs jegyzet.";
+  if(!notes.length){
+    host.innerHTML = '<div class="empty">Üres a füzet. Nyomj egy <b>Új jegyzet</b>-et lent. ✍️</div>';
+    return;
+  }
+  notes.forEach(note=>{
+    const div = document.createElement("div");
+    div.className="card";
+    div.innerHTML = '<div><div>📝 '+esc(note.title||"Névtelen")+'</div><div class="meta">'+esc(fmt(note.updatedAt||note.createdAt))+'</div></div><div class="meta">›</div>';
+    div.onclick = ()=> ui_editNote(note.id);
+    host.appendChild(div);
+  });
+}
+
+/* UI akciók */
+function ui_newNotebook(){
+  const name = prompt("Füzet neve:");
+  if(!name) return;
+  data.notebooks.push({ id: uid(), name: name.trim(), createdAt: Date.now() });
+  save(); renderNotebooks();
+}
+
+function ui_openNotebook(id){
+  activeNotebookId = id;
+  const nb = data.notebooks.find(n=>n.id===id);
+  if(!nb){ alert("Nem találom a füzetet."); show(1); return; }
+  document.getElementById("notebookTitle").innerText = nb.name;
+  renderNotes();
+  show(2);
+}
+
+function ui_backToNotebooks(){
+  activeNotebookId = null;
+  show(1);
+  renderNotebooks();
+}
+
+function ui_deleteNotebook(){
+  if(!activeNotebookId) return;
+  const nb = data.notebooks.find(n=>n.id===activeNotebookId);
+  if(!nb) return;
+  if(!confirm('Biztos törlöd a(z) "'+nb.name+'" füzetet? Minden jegyzet törlődik.')) return;
+  data.notebooks = data.notebooks.filter(n=>n.id!==activeNotebookId);
+  data.notes = data.notes.filter(n=>n.notebookId!==activeNotebookId);
+  save();
+  activeNotebookId=null;
+  show(1);
+  renderNotebooks();
+}
+
+function ui_newNote(){
+  activeNoteId = null;
+  document.getElementById("noteTitle").value="";
+  document.getElementById("noteBody").value="";
+  show(3);
+}
+
+function ui_editNote(id){
+  const note = data.notes.find(n=>n.id===id);
+  if(!note) return;
+  activeNoteId = id;
+  document.getElementById("noteTitle").value = note.title || "";
+  document.getElementById("noteBody").value = note.body || "";
+  show(3);
+}
+
+function ui_backToNotes(){
+  show(2);
+  renderNotes();
+}
+function ui_cancelEdit(){
+  show(2);
+  renderNotes();
+}
+
+function ui_saveNote(){
+  const title = (document.getElementById("noteTitle").value.trim() || "Névtelen");
+  const body  = document.getElementById("noteBody").value;
+  const now = Date.now();
+
+  if(!activeNotebookId){ alert("Nincs kiválasztott füzet."); show(1); return; }
+
+  if(activeNoteId){
+    const note = data.notes.find(n=>n.id===activeNoteId);
+    if(!note) return;
+    note.title = title;
+    note.body = body;
+    note.updatedAt = now;
+  }else{
+    data.notes.push({ id: uid(), notebookId: activeNotebookId, title, body, createdAt: now, updatedAt: now });
+  }
+  save();
+  show(2);
+  renderNotes();
+}
+
+function ui_deleteNote(){
+  if(!activeNoteId){
+    alert("Előbb nyiss meg egy jegyzetet (a listából).");
+    return;
+  }
+  const note = data.notes.find(n=>n.id===activeNoteId);
+  if(!note) return;
+  if(!confirm('Törlöd ezt a jegyzetet?\\n\\n"'+note.title+'"')) return;
+  data.notes = data.notes.filter(n=>n.id!==activeNoteId);
+  save();
+  activeNoteId=null;
+  show(2);
+  renderNotes();
+}
+
+/* Start */
+renderNotebooks();
+</script>
+
+</body>
+</html>
